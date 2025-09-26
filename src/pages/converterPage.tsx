@@ -1,0 +1,444 @@
+import React, { useRef, useState } from "react";
+import { Vector3d } from "open3d";
+import {
+    Button,
+    Form,
+    Header,
+    Icon,
+    Segment,
+    TextArea,
+} from "semantic-ui-react";
+import { Column, Container, Row } from "../components/gridsystem";
+import {
+    PopUpTypes,
+    convertedLevel,
+    deepMerge,
+    handleCopyClipboard,
+    handleDownload,
+    linkReferences,
+    processJSON,
+} from "../constants";
+import GlobalStore, { GlobalState } from "../state/globalstate";
+import ErrorModal from "../components/ErrorModal";
+import { convertToUEFN_NEW } from "../new_converter";
+import MoreWorldModal from "../components/AdditionalWorldsModal";
+import { RelativeLocation, RelativeRotation } from "../classes";
+
+function ConverterPage() {
+    const [file, setFile] = useState<File>();
+
+    const [dragging, setDragging] = useState(false);
+
+    const fileRef = useRef(null);
+    const textRef = useRef(null);
+
+    const [textCopied, setTextCopied] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const [errorTitle, setErrorTitle] = useState<String>("");
+    const [errorStack, setErrorStack] = useState<String>("");
+    const [errorOpen, setErrorOpen] = useState<boolean>(false);
+    const [lastConvertedMap, setLastConvertedMap] =
+        useState<convertedLevel | null>(null);
+
+    const globalState: GlobalState = {
+        ...GlobalStore((state) => state),
+    };
+
+    function handleDragEnter(event: React.DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        event.stopPropagation();
+        setDragging(true);
+    }
+
+    function handleDragLeave(event: any) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (event.target.id === "dragDiv") {
+            setDragging(false);
+        }
+    }
+
+    function handleDragOver(event: React.DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    function handleDrop(event: React.DragEvent<HTMLDivElement>) {
+        event.preventDefault();
+        event.stopPropagation();
+        setDragging(false);
+
+        if (event.dataTransfer.files && event.dataTransfer.files.length > 0) {
+            if (event.dataTransfer.files.length > 1) {
+                globalState.openPopUp({
+                    title: "Error!",
+                    content: "Please only upload 1 File",
+                    type: PopUpTypes.ERROR,
+                });
+                return;
+            }
+            const tempFile = event.dataTransfer.files[0];
+            if (tempFile.type === "application/json") {
+                setFile(event.dataTransfer.files[0]);
+            } else {
+                globalState.openPopUp({
+                    title: "Error!",
+                    content: "Uploaded file isnt JSON format",
+                    type: PopUpTypes.ERROR,
+                });
+            }
+        }
+    }
+
+    function handleChange(event: any) {
+        event.stopPropagation();
+        if (event.target.files && event.target.files.length > 0) {
+            if (event.target.files.length > 1) {
+                globalState.openPopUp({
+                    title: "Error!",
+                    content: "Please only upload 1 File",
+                    type: PopUpTypes.ERROR,
+                });
+                return;
+            }
+            const tempFile = event.target.files[0];
+            if (tempFile.type === "application/json") {
+                setFile(event.target.files[0]);
+            } else {
+                globalState.openPopUp({
+                    title: "Error!",
+                    content: "Uploaded file isnt JSON format",
+                    type: PopUpTypes.ERROR,
+                });
+            }
+        }
+    }
+
+    async function handleConvertion() {
+        if (isLoading) {
+            return;
+        } else if (file) {
+            setIsLoading(true);
+            const rawJson = await file!.text();
+            console.log("Filesize", file.name, file.size);
+
+            const folderName =
+                globalState.currentSettings.customFolderName.trim().length > 0
+                    ? globalState.currentSettings.customFolderName
+                    : file.name.split(".")[0];
+
+            let convertedMap: string | undefined;
+
+            try {
+                convertedMap = await convertToUEFN_NEW(
+                    processJSON(rawJson),
+                    folderName,
+                    true,
+                    null,
+                    null
+                );
+                const convertedLevel: convertedLevel = {
+                    fileName: folderName,
+                    fileContent: convertedMap,
+                    dateCreated: new Date(),
+                };
+                setLastConvertedMap(convertedLevel);
+                if (convertedLevel.fileContent.length > 4718592) {
+                    globalState.openPopUp({
+                        title: "Warning!",
+                        content:
+                            "Converted Level is bigger than 10MB! If the map doesnt show up please refresh the page and try again",
+                        type: PopUpTypes.WARNING,
+                    });
+                }
+                globalState.incrementConvertedFiles();
+                setIsLoading(false);
+            } catch (error: any) {
+                console.error(error);
+                setErrorOpen(true);
+                setErrorTitle("An Error has occured!");
+                setErrorStack(error.stack);
+                setIsLoading(false);
+            }
+        }
+    }
+
+    return (
+        <>
+            <div style={{ minHeight: "2.85714286em" }}></div>
+            <Container>
+                <Row>
+                    <Column size={6}>
+                        <Segment
+                            raised
+                            padded="very"
+                            inverted={globalState.currentSettings.darkMode}
+                        >
+                            <Header size="huge">UMAP to UEFN converter</Header>
+                        </Segment>
+                    </Column>
+                </Row>
+                <Row>
+                    <Column size={4}>
+                        <Segment
+                            raised
+                            textAlign="center"
+                            inverted={globalState.currentSettings.darkMode}
+                        >
+                            <div style={{ height: "11rem" }}>
+                                <Header
+                                    size="huge"
+                                    inverted={
+                                        globalState.currentSettings.darkMode
+                                    }
+                                >
+                                    You have converted a total of{" "}
+                                    {globalState.totalFilesConverted} file
+                                    {globalState.totalFilesConverted !== 1
+                                        ? "s"
+                                        : ""}
+                                    !
+                                </Header>
+                            </div>
+                        </Segment>
+                    </Column>
+                    <Column size={2}>
+                        <Segment
+                            raised
+                            inverted={globalState.currentSettings.darkMode}
+                        >
+                            <div style={{ height: "11rem" }}>
+                                <Header
+                                    size="tiny"
+                                    inverted={
+                                        globalState.currentSettings.darkMode
+                                    }
+                                >
+                                    Created By:{" "}
+                                    <a
+                                        href={linkReferences.ytChannel}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        Sensei Usagi
+                                    </a>
+                                </Header>
+                                <Header
+                                    size="tiny"
+                                    inverted={
+                                        globalState.currentSettings.darkMode
+                                    }
+                                >
+                                    Workflow By:{" "}
+                                    <a
+                                        href={linkReferences.itsNik}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        ItsNik &#128011;
+                                    </a>
+                                </Header>
+                                <Header
+                                    size="tiny"
+                                    inverted={
+                                        globalState.currentSettings.darkMode
+                                    }
+                                >
+                                    <a
+                                        href={linkReferences.license}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        License
+                                    </a>
+                                </Header>
+                                <Header
+                                    size="tiny"
+                                    floated="right"
+                                    inverted={
+                                        globalState.currentSettings.darkMode
+                                    }
+                                >
+                                    {/* Ver. FullVersion.FeatureVersion.PatchVersion.ModelsInfoVersion */}
+                                    Ver. 1.2.0.16
+                                </Header>
+                            </div>
+                        </Segment>
+                    </Column>
+                </Row>
+                <Row>
+                    <Column size={6}>
+                        <Segment raised color="red" textAlign="center" inverted>
+                            <Header icon size="large">
+                                <Icon name="warning" />
+                                DISCLAIMER
+                            </Header>
+                            <Header>
+                                Porting UMAPS like this is not 100% accurate.
+                                Converted Maps might not have correct materials,
+                                textures or missing models, because they either
+                                got removed, relocated or replaced! UMAPS
+                                converted with this tool will also most likely
+                                not validate, since they use assets from the
+                                game itself. You will need to do manual cleanup
+                                if you want to use converted maps in your
+                                project.
+                            </Header>
+                        </Segment>
+                    </Column>
+                </Row>
+                <Row>
+                    <Column size={6}>
+                        <div
+                            onDragEnter={handleDragEnter}
+                            onDragLeave={handleDragLeave}
+                            onDragOver={handleDragOver}
+                            onDrop={handleDrop}
+                        >
+                            <Segment
+                                placeholder
+                                raised
+                                id="dragDiv"
+                                textAlign="center"
+                                inverted={
+                                    globalState.currentSettings.darkMode
+                                    // || dragging
+                                }
+                                loading={isLoading}
+                                // color={dragging ? "blue" : undefined}
+                            >
+                                <Header icon>
+                                    <Icon name="file code outline" />
+                                    {file
+                                        ? `Uploaded file: ${file.name}`
+                                        : "No file uploaded"}
+                                </Header>
+                                <label>
+                                    <input
+                                        ref={fileRef}
+                                        type="file"
+                                        style={{ display: "none" }}
+                                        accept=".json"
+                                        onChange={handleChange}
+                                    />
+                                    <span className="ui primary button">
+                                        {file
+                                            ? "Change file"
+                                            : "Upload .json file"}
+                                    </span>
+                                </label>
+                            </Segment>
+                        </div>
+                    </Column>
+                </Row>
+                <Row>
+                    <Column size={2}>
+                        <Segment
+                            raised
+                            textAlign="center"
+                            inverted={globalState.currentSettings.darkMode}
+                        >
+                            <Button
+                                primary
+                                disabled={lastConvertedMap === null}
+                                onClick={() => {
+                                    if (lastConvertedMap !== null) {
+                                        handleCopyClipboard(
+                                            lastConvertedMap.fileContent,
+                                            setTextCopied
+                                        );
+                                    }
+                                }}
+                                loading={isLoading}
+                                size="big"
+                                icon
+                                labelPosition="right"
+                                fluid
+                            >
+                                {textCopied ? "Copied!" : "Copy to clipboard"}
+                                <Icon name="copy" />
+                            </Button>
+                        </Segment>
+                    </Column>
+                    <Column size={2}>
+                        <Segment
+                            raised
+                            textAlign="center"
+                            inverted={globalState.currentSettings.darkMode}
+                        >
+                            <Button
+                                primary
+                                disabled={!file}
+                                onClick={handleConvertion}
+                                loading={isLoading}
+                                size="big"
+                                icon
+                                labelPosition="right"
+                                fluid
+                            >
+                                Convert to UEFN format
+                                <Icon name="code" />
+                            </Button>
+                        </Segment>
+                    </Column>
+                    <Column size={2}>
+                        <Segment
+                            raised
+                            textAlign="center"
+                            inverted={globalState.currentSettings.darkMode}
+                        >
+                            <Button
+                                primary
+                                disabled={lastConvertedMap === null}
+                                onClick={handleDownload.bind(
+                                    null,
+                                    lastConvertedMap!
+                                )}
+                                loading={isLoading}
+                                size="big"
+                                icon
+                                labelPosition="right"
+                                fluid
+                            >
+                                Download .txt file
+                                <Icon name="download" />
+                            </Button>
+                        </Segment>
+                    </Column>
+                </Row>
+                <Row>
+                    <Column size={6}>
+                        <Segment
+                            raised
+                            inverted={globalState.currentSettings.darkMode}
+                        >
+                            <Form>
+                                <TextArea
+                                    readOnly
+                                    placeholder="Copy the resulting text into UEFN"
+                                    value={lastConvertedMap?.fileContent}
+                                    rows={25}
+                                    ref={textRef}
+                                />
+                            </Form>
+                        </Segment>
+                    </Column>
+                </Row>
+            </Container>
+            <MoreWorldModal />
+            <ErrorModal
+                open={errorOpen}
+                title={errorTitle}
+                stackTrace={errorStack}
+                onClose={() => {
+                    setErrorOpen(false);
+                    setErrorTitle("");
+                    setErrorStack("");
+                }}
+            />
+        </>
+    );
+}
+
+export default ConverterPage;
